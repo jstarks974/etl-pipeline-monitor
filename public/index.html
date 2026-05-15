@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ETL Pipeline Monitor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --bg2:       #161b22;
+      --bg3:       #21262d;
+      --border:    #30363d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --success:   #3fb950;
+      --warning:   #d29922;
+      --danger:    #f85149;
+      --info:      #388bfd;
+      --running:   #a371f7;
+      --font:      'Courier New', Courier, monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      min-height: 100vh;
+    }
+
+    /* ── Layout ── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo { font-size: 15px; font-weight: bold; letter-spacing: 0.05em; color: var(--text); }
+    .logo span { color: var(--running); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); animation: pulse 2s infinite; margin-left: auto; }
+    .status-label { color: var(--muted); font-size: 11px; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+
+    /* ── Summary cards ── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+    }
+
+    .card-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+    .card-value { font-size: 26px; font-weight: bold; }
+    .card-value.success { color: var(--success); }
+    .card-value.danger  { color: var(--danger); }
+    .card-value.running { color: var(--running); }
+    .card-value.info    { color: var(--info); }
+
+    /* ── Section headers ── */
+    .section-header {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Pipeline list ── */
+    .pipeline-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .pipeline-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .pipeline-card:hover { border-color: var(--info); }
+    .pipeline-card.active { border-color: var(--running); }
+
+    .pipeline-name { font-size: 13px; font-weight: bold; margin-bottom: 4px; }
+    .pipeline-desc { color: var(--muted); font-size: 11px; margin-bottom: 12px; }
+
+    .stage-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 5px;
+      font-size: 11px;
+    }
+
+    .stage-label { color: var(--muted); width: 72px; flex-shrink: 0; }
+
+    .badge {
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: bold;
+      letter-spacing: 0.05em;
+    }
+    .badge.SUCCESS { background: #1a3a1e; color: var(--success); }
+    .badge.FAILED  { background: #3a1a1a; color: var(--danger); }
+    .badge.RUNNING { background: #2a1a3a; color: var(--running); }
+    .badge.PENDING { background: var(--bg3); color: var(--muted); }
+
+    /* ── Job table ── */
+    .table-wrap { overflow-x: auto; margin-bottom: 28px; }
+
+    table { width: 100%; border-collapse: collapse; }
+
+    th {
+      text-align: left;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      vertical-align: middle;
+    }
+
+    tr:hover td { background: var(--bg2); cursor: pointer; }
+
+    .duration { color: var(--muted); }
+
+    /* ── Log panel ── */
+    #log-panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+      display: none;
+    }
+
+    #log-panel.visible { display: block; }
+
+    .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .log-title  { font-size: 12px; font-weight: bold; }
+    .log-close  { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; }
+    .log-close:hover { color: var(--text); }
+
+    .log-stream {
+      font-size: 11px;
+      line-height: 1.8;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    .log-line { display: flex; gap: 12px; }
+    .log-time { color: var(--muted); flex-shrink: 0; }
+    .log-level { width: 38px; flex-shrink: 0; font-weight: bold; }
+    .log-level.INFO  { color: var(--info); }
+    .log-level.WARN  { color: var(--warning); }
+    .log-level.ERROR { color: var(--danger); }
+    .log-msg { color: var(--text); }
+
+    .metrics-row {
+      display: flex;
+      gap: 24px;
+      padding-top: 12px;
+      margin-top: 12px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+    }
+    .metric-item { display: flex; flex-direction: column; gap: 3px; }
+    .metric-label { color: var(--muted); }
+    .metric-val { font-size: 15px; font-weight: bold; color: var(--text); }
+
+    /* ── Chart ── */
+    .chart-wrap {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin-bottom: 28px;
+    }
+
+    #throughputChart { width: 100% !important; height: 180px !important; }
+
+    .loading { color: var(--muted); font-size: 12px; padding: 20px 0; }
+
+    /* ── Refresh bar ── */
+    .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .refresh-btn {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 11px;
+      padding: 5px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      letter-spacing: 0.05em;
+    }
+    .refresh-btn:hover { border-color: var(--info); color: var(--info); }
+    .last-updated { color: var(--muted); font-size: 11px; margin-left: auto; }
+
+    .filter-select {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 11px;
+      padding: 5px 10px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">ETL <span>//</span> PIPELINE MONITOR</div>
+  <div class="status-label">LIVE</div>
+  <div class="status-dot"></div>
+</header>
+
+<main>
+
+  <!-- Summary cards -->
+  <div class="cards" id="summary-cards">
+    <div class="card"><div class="card-label">Total Jobs</div><div class="card-value info" id="s-total">—</div></div>
+    <div class="card"><div class="card-label">Successful</div><div class="card-value success" id="s-success">—</div></div>
+    <div class="card"><div class="card-label">Failed</div><div class="card-value danger" id="s-failed">—</div></div>
+    <div class="card"><div class="card-label">Running</div><div class="card-value running" id="s-running">—</div></div>
+    <div class="card"><div class="card-label">Rows Processed</div><div class="card-value info" id="s-rows">—</div></div>
+    <div class="card"><div class="card-label">Avg Duration</div><div class="card-value" id="s-duration">—</div></div>
+  </div>
+
+  <!-- Pipelines -->
+  <div class="section-header">Pipelines</div>
+  <div class="pipeline-grid" id="pipeline-grid">
+    <div class="loading">Loading pipelines...</div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="section-header" style="margin:0; border:none;">Recent Jobs</div>
+    <select class="filter-select" id="status-filter">
+      <option value="">All statuses</option>
+      <option value="SUCCESS">Success</option>
+      <option value="FAILED">Failed</option>
+      <option value="RUNNING">Running</option>
+    </select>
+    <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
+    <div class="last-updated" id="last-updated"></div>
+  </div>
+
+  <!-- Jobs table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Pipeline</th>
+          <th>Stage</th>
+          <th>Status</th>
+          <th>Started</th>
+          <th>Duration</th>
+        </tr>
+      </thead>
+      <tbody id="jobs-tbody">
+        <tr><td colspan="6" class="loading">Loading jobs...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Throughput chart -->
+  <div class="section-header">Throughput (rows processed per job)</div>
+  <div class="chart-wrap">
+    <canvas id="throughputChart" role="img" aria-label="Bar chart showing rows processed per recent job">No chart data yet.</canvas>
+  </div>
+
+  <!-- Log panel -->
+  <div id="log-panel">
+    <div class="log-header">
+      <div class="log-title" id="log-title">Job Logs</div>
+      <button class="log-close" onclick="closeLog()">✕</button>
+    </div>
+    <div class="log-stream" id="log-stream"></div>
+    <div class="metrics-row" id="metrics-row"></div>
+  </div>
+
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+  const API = 'http://localhost:3000/api';
+  let throughputChart = null;
+
+  // Utilities
+  function fmt(n) { return n == null ? '—' : Number(n).toLocaleString(); }
+
+  function fmtDuration(ms) {
+    if (ms == null) return '—';
+    if (ms < 1000) return ms + 'ms';
+    return (ms / 1000).toFixed(1) + 's';
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function elapsed(start, end) {
+    if (!start) return '—';
+    const ms = (end ? new Date(end) : new Date()) - new Date(start);
+    return fmtDuration(ms);
+  }
+
+  // Summary
+  async function loadSummary() {
+    try {
+      const res = await fetch(`${API}/pipelines/stats/summary`);
+      const d = await res.json();
+      document.getElementById('s-total').textContent    = fmt(d.total_jobs);
+      document.getElementById('s-success').textContent  = fmt(d.successful_jobs);
+      document.getElementById('s-failed').textContent   = fmt(d.failed_jobs);
+      document.getElementById('s-running').textContent  = fmt(d.running_jobs);
+      document.getElementById('s-rows').textContent     = fmt(d.total_rows_processed);
+      document.getElementById('s-duration').textContent = fmtDuration(Math.round(d.avg_duration_ms));
+    } catch (e) {
+      console.error('Summary load failed', e);
+    }
+  }
+
+  // Pipelines 
+  async function loadPipelines() {
+    try {
+      const res  = await fetch(`${API}/pipelines`);
+      const list = await res.json();
+      const grid = document.getElementById('pipeline-grid');
+      grid.innerHTML = '';
+
+      list.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'pipeline-card';
+        card.dataset.id = p.id;
+
+        const stages = ['EXTRACT', 'TRANSFORM', 'LOAD'];
+        const stageRows = stages.map(s => `
+          <div class="stage-row">
+            <span class="stage-label">${s}</span>
+            <span class="badge PENDING">PENDING</span>
+          </div>`).join('');
+
+        card.innerHTML = `
+          <div class="pipeline-name">${p.name}</div>
+          <div class="pipeline-desc">${p.description || ''}</div>
+          <div style="display:flex; gap:16px; font-size:11px; margin-bottom:10px;">
+            <span style="color:var(--success)">✓ ${p.successful_jobs} ok</span>
+            <span style="color:var(--danger)">✗ ${p.failed_jobs} fail</span>
+            <span style="color:var(--running)">● ${p.running_jobs} live</span>
+          </div>
+          ${stageRows}
+        `;
+
+        // Fetch latest job statuses per stage for this pipeline
+        fetch(`${API}/jobs?pipeline_id=${p.id}`)
+          .then(r => r.json())
+          .then(jobs => {
+            const latest = {};
+            jobs.forEach(j => { if (!latest[j.stage]) latest[j.stage] = j; });
+            const rows = card.querySelectorAll('.stage-row');
+            stages.forEach((s, i) => {
+              const badge = rows[i].querySelector('.badge');
+              const status = latest[s]?.status || 'PENDING';
+              badge.className = `badge ${status}`;
+              badge.textContent = status;
+            });
+          });
+
+        card.addEventListener('click', () => {
+          document.querySelectorAll('.pipeline-card').forEach(c => c.classList.remove('active'));
+          card.classList.add('active');
+          filterByPipeline(p.id);
+        });
+
+        grid.appendChild(card);
+      });
+    } catch (e) {
+      document.getElementById('pipeline-grid').innerHTML = '<div class="loading">Could not load pipelines.</div>';
+    }
+  }
+
+  // Jobs 
+  let allJobs = [];
+
+  async function loadJobs() {
+    try {
+      const status = document.getElementById('status-filter').value;
+      const url    = status ? `${API}/jobs?status=${status}` : `${API}/jobs`;
+      const res    = await fetch(url);
+      allJobs      = await res.json();
+      renderJobs(allJobs);
+      renderChart(allJobs);
+    } catch (e) {
+      document.getElementById('jobs-tbody').innerHTML = '<tr><td colspan="6" class="loading">Could not load jobs.</td></tr>';
+    }
+  }
+
+  function filterByPipeline(pid) {
+    const filtered = allJobs.filter(j => j.pipeline_id == pid);
+    renderJobs(filtered);
+    renderChart(filtered);
+  }
+
+  function renderJobs(jobs) {
+    const tbody = document.getElementById('jobs-tbody');
+    if (!jobs.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="loading">No jobs found.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = jobs.slice(0, 50).map(j => `
+      <tr onclick="openLog(${j.id}, '${j.pipeline_name} / ${j.name}')">
+        <td style="color:var(--muted)">#${j.id}</td>
+        <td>${j.pipeline_name}</td>
+        <td style="color:var(--muted)">${j.stage}</td>
+        <td><span class="badge ${j.status}">${j.status}</span></td>
+        <td class="duration">${fmtTime(j.started_at)}</td>
+        <td class="duration">${elapsed(j.started_at, j.finished_at)}</td>
+      </tr>
+    `).join('');
+  }
+
+  // Chart 
+  function renderChart(jobs) {
+    const successful = jobs.filter(j => j.status === 'SUCCESS').slice(0, 20).reverse();
+    const labels     = successful.map(j => `#${j.id}`);
+    const data       = [];
+
+    if (!successful.length) return;
+
+    Promise.all(successful.map(j =>
+      fetch(`${API}/jobs/${j.id}`).then(r => r.json())
+    )).then(details => {
+      const rows = details.map(d => d.metrics?.rows_processed || 0);
+
+      if (throughputChart) throughputChart.destroy();
+
+      throughputChart = new Chart(document.getElementById('throughputChart'), {
+        type: 'bar',
+        data: {
+          labels: details.map(d => `#${d.id} ${d.stage}`),
+          datasets: [{
+            label: 'Rows processed',
+            data: rows,
+            backgroundColor: '#388bfd44',
+            borderColor: '#388bfd',
+            borderWidth: 1,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => ' ' + ctx.raw.toLocaleString() + ' rows'
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: { color: '#8b949e', font: { family: 'Courier New', size: 10 }, maxRotation: 45, autoSkip: false },
+              grid:  { color: '#21262d' }
+            },
+            y: {
+              ticks: {
+                color: '#8b949e',
+                font: { family: 'Courier New', size: 10 },
+                callback: v => (v >= 1000 ? (v/1000).toFixed(0)+'k' : v)
+              },
+              grid: { color: '#21262d' }
+            }
+          }
+        }
+      });
+    });
+  }
+
+  // Log panel
+  async function openLog(id, title) {
+    const panel = document.getElementById('log-panel');
+    panel.classList.add('visible');
+    document.getElementById('log-title').textContent = title;
+    document.getElementById('log-stream').innerHTML  = '<div class="loading">Loading logs...</div>';
+    document.getElementById('metrics-row').innerHTML = '';
+
+    try {
+      const res  = await fetch(`${API}/jobs/${id}`);
+      const job  = await res.json();
+
+      const stream = document.getElementById('log-stream');
+      stream.innerHTML = job.logs.map(l => `
+        <div class="log-line">
+          <span class="log-time">${fmtTime(l.logged_at)}</span>
+          <span class="log-level ${l.level}">${l.level}</span>
+          <span class="log-msg">${l.message}</span>
+        </div>
+      `).join('');
+
+      stream.scrollTop = stream.scrollHeight;
+
+      if (job.metrics) {
+        document.getElementById('metrics-row').innerHTML = `
+          <div class="metric-item"><span class="metric-label">Rows processed</span><span class="metric-val">${fmt(job.metrics.rows_processed)}</span></div>
+          <div class="metric-item"><span class="metric-label">Rows failed</span><span class="metric-val" style="color:var(--danger)">${fmt(job.metrics.rows_failed)}</span></div>
+          <div class="metric-item"><span class="metric-label">Duration</span><span class="metric-val">${fmtDuration(job.metrics.duration_ms)}</span></div>
+        `;
+      }
+
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (e) {
+      document.getElementById('log-stream').innerHTML = '<div class="loading">Could not load logs.</div>';
+    }
+  }
+
+  function closeLog() {
+    document.getElementById('log-panel').classList.remove('visible');
+  }
+
+  // Filter listener 
+  document.getElementById('status-filter').addEventListener('change', loadJobs);
+
+  // Main
+  async function loadAll() {
+    await Promise.all([loadSummary(), loadPipelines(), loadJobs()]);
+    document.getElementById('last-updated').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+  }
+
+  loadAll();
+  setInterval(loadAll, 30000); // auto-refresh every 30s
+</script>
+
+</body>
+</html>
