@@ -82,8 +82,6 @@ etl-pipeline-monitor/
 ├── scripts/
 │   ├── setup.sh              # One-time environment setup
 │   └── seed.js               # Populates DB with realistic sample data
-├── docs/
-│   └── architecture.md       # Design decisions and enterprise context
 └── README.md
 ```
 
